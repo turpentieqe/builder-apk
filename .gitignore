@@ -1,0 +1,17 @@
+# игнорируем артефакты сборки и секреты
+build/
+*.apk
+*.aab
+*.keystore
+*.jks
+.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+
+# редакторы
+.vscode/
+.idea/
+*.swp

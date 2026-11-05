@@ -1,0 +1,18 @@
+#!/bin/sh
+# Тонкий враппер: запускает python-версию из lib/.
+# Работает и через симлинк из ~/bin или /usr/local/bin.
+set -e
+
+SELF="$0"
+while [ -L "$SELF" ]; do
+  DIR=$(cd "$(dirname "$SELF")" && pwd)
+  SELF=$(readlink "$SELF")
+  case "$SELF" in
+    /*) ;;
+    *) SELF="$DIR/$SELF" ;;
+  esac
+done
+BIN_DIR=$(cd "$(dirname "$SELF")" && pwd)
+ROOT_DIR=$(dirname "$BIN_DIR")
+
+exec python3 "$ROOT_DIR/lib/apkbuild.py" "$@"
