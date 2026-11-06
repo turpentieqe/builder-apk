@@ -1,6 +1,17 @@
 # builder-apk
 
-Сборка Android APK **без Gradle** — прямо в Termux (или на любом Linux).
+**Сборка Android APK без Gradle — прямо в Termux (или на любом Linux).**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Linux-lightgrey.svg)](#)
+[![Stars](https://img.shields.io/github/stars/turpentieqe/builder-apk?style=social)](https://github.com/turpentieqe/builder-apk/stargazers)
+
+> Gradle нужен не всегда. Для простого приложения APK собирается руками за семь шагов —
+> `builder-apk` делает это за вас и не даёт цепочке провалиться молча.
+>
+> Полезно, если вы кодите на телефоне: Gradle в Termux — это демоны, гигабайты памяти
+> и сборки по несколько минут. Здесь — секунды и один `python3`.
 
 ```bash
 builder-apk doctor      # проверить, что цепочка инструментов на месте
@@ -8,6 +19,8 @@ builder-apk init myapp  # сгенерировать скелет проекта
 builder-apk build       # собрать APK
 builder-apk inspect app-debug.apk
 ```
+
+**Содержание:** [Зачем](#зачем) · [Что ловит](#что-он-ловит-и-почему-это-важно) · [Установка](#установка) · [Команды](#команды) · [Тесты](#тесты) · [Ограничения](#ограничения) · [FAQ](#faq)
 
 ## Зачем
 
@@ -118,12 +131,45 @@ python3 tests/run.py
 57 тестов, без внешних зависимостей: стадии вызываются на фейковых
 исполняемых скриптах, поэтому SDK для тестов не нужен.
 
+## Проверено вживую
+
+Собрано на Termux (aarch64, Android 16) с build-tools 34.0.0:
+
+| Проект | Стадии | Результат |
+|---|---|---|
+| Java-скелет из `init` | 7/7 | 12.7 KiB APK, подпись OK |
+| Kotlin-скелет из `init` | 7/7 | 604.7 KiB APK, подпись OK |
+
 ## Ограничения
 
 - Только Kotlin и Java. C/C++ (NDK), Compose, мульти-модульные проекты — нет.
 - Нет инкрементальной сборки: каждый запуск собирает всё заново.
 - Нет работы с AAB, не поддерживаются build variants и flavors.
 - Тестировалось на Termux (aarch64) и Linux x86-64.
+
+## FAQ
+
+**Это замена Gradle?**
+Нет. Это замена *для маленьких проектов на телефоне*, где Gradle не тянет.
+Если у вас мульти-модульный проект, flavors и Compose — берите Gradle.
+
+**Почему не просто `pkg install android-sdk` и скрипт?**
+Потому что ручной скрипт проваливается молча. Тут каждая стадия проверяется,
+а известные «шумные» ошибки Termux (jansi, `Exec format error`) объясняются словами.
+
+**APK не устанавливается.**
+Проверьте `builder-apk inspect app-debug.apk`: там видно, есть ли подпись.
+Неподписанный APK Android не поставит.
+
+**Можно ли собрать релиз для Google Play?**
+Собрать подписанный APK — да (`--release --keystore`). AAB для Play — нет.
+
+## Участие
+
+Issue и pull request'ы приветствуются. Перед PR прогоните `python3 tests/run.py` —
+все 57 тестов должны быть зелёными, SDK для них не нужен.
+
+Если проект сэкономил вам время — поставьте ⭐, это помогает другим его найти.
 
 ## Лицензия
 

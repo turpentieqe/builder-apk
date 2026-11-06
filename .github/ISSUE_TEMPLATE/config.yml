@@ -1,0 +1,6 @@
+# Вопросы и предложения — в Issues
+blank_issues_enabled: true
+contact_links:
+  - name: Документация по Termux
+    url: https://github.com/turpentieqe/builder-apk/blob/main/docs/termux-setup.md
+    about: Если инструменты не находятся — начните отсюда (архитектура SDK, kotlinc, ANDROID_HOME)
