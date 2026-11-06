@@ -108,8 +108,18 @@ class CommandBuildersTest(unittest.TestCase):
 
 class ResolveSdkTest(TempDirTestCase):
     def test_missing_sdk_raises(self):
-        with self.assertRaises(builder.BuildError):
-            builder.resolve_sdk(sdk=None, build_tools=None)
+        # На машине с ANDROID_HOME переменная окружения даёт SDK само собой —
+        # поэтому изолируем тест от окружения, иначе на CI он зелёный «случайно».
+        saved = {
+            key: os.environ.pop(key)
+            for key in ("ANDROID_HOME", "ANDROID_SDK_ROOT")
+            if key in os.environ
+        }
+        try:
+            with self.assertRaises(builder.BuildError):
+                builder.resolve_sdk(sdk=None, build_tools=None)
+        finally:
+            os.environ.update(saved)
 
     def test_explicit_build_tools_is_used(self):
         bt = os.path.join(self.tmpdir, "build-tools", "34.0.0")
