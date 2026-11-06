@@ -115,6 +115,9 @@ builder-apk build                 # debug
 builder-apk build --release --keystore ~/keys/release.keystore
 builder-apk build --json          # машинный вывод для CI
 builder-apk build --no-cache      # пересобрать всё (кэш игнорируется)
+builder-apk build --version-code 7 --version-name 2.5.0
+builder-apk build --release --keystore ~/keys/release.keystore
+builder-apk clean                 # удалить build/ и отладочный keystore
 ```
 
 Сборка кэшируется: `compile` и `d8` пропускаются, если входы не менялись.

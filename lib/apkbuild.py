@@ -23,6 +23,7 @@ import languages  # noqa: E402
 import inspector  # noqa: E402
 import init_template  # noqa: E402
 import builder  # noqa: E402
+import cleaner  # noqa: E402
 
 
 def _add_sdk_args(parser):
@@ -84,7 +85,20 @@ def cmd_build(args):
         lang=args.lang,
         compiler=args.compiler,
         use_cache=not args.no_cache,
+        version_code=args.version_code,
+        version_name=args.version_name,
+        java_release=args.java_release,
     )
+
+
+def cmd_clean(args):
+    removed = cleaner.clean(args.project_dir)
+    if not removed:
+        print("нечего чистить")
+        return 0
+    for path in removed:
+        print("удалён:", path)
+    return 0
 
 
 def build_parser():
@@ -138,6 +152,14 @@ def build_parser():
         default=None,
         help="язык исходников (по умолчанию определяется по src/)",
     )
+    p_build.add_argument("--version-code", type=int, default=1, help="versionCode (по умолчанию 1)")
+    p_build.add_argument("--version-name", default="1.0", help="versionName (по умолчанию 1.0)")
+    p_build.add_argument(
+        "--java-release",
+        type=int,
+        default=None,
+        help="версия Java для javac (по умолчанию 8)",
+    )
     p_build.add_argument(
         "--no-cache",
         action="store_true",
@@ -148,6 +170,10 @@ def build_parser():
         help="явный путь к компилятору (kotlinc/groovyc/scalac); для java не нужен",
     )
     p_build.set_defaults(func=cmd_build)
+
+    p_clean = sub.add_parser("clean", help="удалить build/ и отладочный keystore")
+    p_clean.add_argument("project_dir", nargs="?", default=".", help="каталог проекта")
+    p_clean.set_defaults(func=cmd_clean)
 
     return parser
 

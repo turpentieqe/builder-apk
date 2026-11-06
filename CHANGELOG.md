@@ -3,7 +3,18 @@
 Все заметные изменения в проекте. Формат — [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/),
 версии — [SemVer](https://semver.org/lang/ru/).
 
-## [0.3.0] — не выпущено
+## [0.4.0] — не выпущено
+
+### Добавлено
+
+- `builder-apk clean` — удаляет `build/` и отладочный keystore, исходники не трогает.
+- `--version-code` / `--version-name` для `build` (раньше были захардкожены 1 и 1.0).
+- `--java-release` для `build` — целевая версия Java для `javac` (по умолчанию 8).
+  При target >= 9 автоматически переключается с `-bootclasspath` на `-classpath`,
+  т.к. javac это запрещает.
+- Предупреждение, если `--release` собран с отладочным keystore.
+
+## [0.3.0] — выпущено
 
 ### Добавлено
 

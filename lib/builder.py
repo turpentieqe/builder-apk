@@ -211,7 +211,7 @@ def _compile_scala(scalac, android_jar, classes_dir, sources):
     ] + sources
 
 
-def compile_command(lang, android_jar, classes_dir, sources, compiler=None):
+def compile_command(lang, android_jar, classes_dir, sources, compiler=None, java_release=None):
     """Собирает команду компиляции для любого поддерживаемого языка.
 
     Единая точка входа: раньше ветвление было зашито в двух местах, теперь
@@ -223,7 +223,7 @@ def compile_command(lang, android_jar, classes_dir, sources, compiler=None):
         )
 
     if lang == "java":
-        return _compile_java(android_jar, classes_dir, sources)
+        return _compile_java(android_jar, classes_dir, sources, java_release=java_release)
 
     info = languages.LANGUAGES[lang]
     binary = compiler or shutil.which(info["compiler"])
@@ -254,19 +254,21 @@ def _compile_kotlin(kotlinc, android_jar, classes_dir, sources):
     ] + sources
 
 
-def _compile_java(android_jar, classes_dir, sources):
-    """javac: компиляция Java под Android bootclasspath."""
-    return [
-        "javac",
-        "-source",
-        "8",
-        "-target",
-        "8",
-        "-bootclasspath",
-        android_jar,
-        "-d",
-        classes_dir,
-    ] + sources
+def _compile_java(android_jar, classes_dir, sources, java_release=None):
+    """javac: компиляция Java под Android bootclasspath.
+
+    java_release — целевая версия Java (по умолчанию 8). Android требует
+    `-bootclasspath` (а не `--release`) при source/target <= 8, и наоборот:
+    при target >= 9 javac запрещает `-bootclasspath`, поэтому переключаемся
+    на `--release` без bootclasspath.
+    """
+    version = str(java_release or 8)
+    cmd = ["javac", "-source", version, "-target", version, "-d", classes_dir]
+    if int(version) <= 8:
+        cmd[1:1] = ["-bootclasspath", android_jar]
+    else:
+        cmd[1:1] = ["-classpath", android_jar]
+    return cmd + sources
 
 
 def _d8_cmd(java, d8_jar, android_jar, min_sdk, dex_dir, class_files, extra_jars=()):
@@ -303,6 +305,9 @@ def build(
     lang=None,
     compiler=None,
     use_cache=True,
+    version_code=1,
+    version_name="1.0",
+    java_release=None,
 ):
     """Собирает APK. Возвращает код выхода (0 — успех)."""
     import json as _json
@@ -325,6 +330,9 @@ def build(
             lang=lang,
             compiler=compiler,
             use_cache=use_cache,
+            version_code=version_code,
+            version_name=version_name,
+            java_release=java_release,
         )
         report["stages"] = stages
         report["warnings"] = warnings
@@ -360,6 +368,9 @@ def _build_inner(
     lang=None,
     compiler=None,
     use_cache=True,
+    version_code=1,
+    version_name="1.0",
+    java_release=None,
 ):
     stages = []
     warnings = []
@@ -431,9 +442,9 @@ def _build_inner(
             "--target-sdk-version",
             str(target_sdk),
             "--version-code",
-            "1",
+            str(version_code),
             "--version-name",
-            "1.0",
+            str(version_name),
             "--auto-add-overlay",
         ],
         "aapt2-link",
@@ -465,6 +476,7 @@ def _build_inner(
         use_cache=use_cache,
         res_dir=res_dir,
         manifest=manifest,
+        java_release=java_release,
     )
 
 
@@ -493,12 +505,15 @@ def _compile_and_pack(
     use_cache=True,
     res_dir=None,
     manifest=None,
+    java_release=None,
 ):
     """Стадии 3-7: компиляция, dex, упаковка, выравнивание, подпись."""
     store = cache.BuildCache(os.path.join(project_dir, "build", ".cache", "stages.json"))
 
     # 3. Компиляция — единая точка входа для всех языков
-    cmd = compile_command(lang, jar, classes_dir, sources, compiler=compiler or kotlinc)
+    cmd = compile_command(
+        lang, jar, classes_dir, sources, compiler=compiler or kotlinc, java_release=java_release
+    )
     compile_stamp = cache.fingerprint(sources, extra=cmd)
     if use_cache and store.is_fresh("compile", compile_stamp):
         stages.append(_skipped("compile"))
@@ -560,7 +575,17 @@ def _compile_and_pack(
     final = output or os.path.join(project_dir, "build", "app-%s.apk" % suffix)
     os.makedirs(os.path.dirname(os.path.abspath(final)), exist_ok=True)
     shutil.copyfile(aligned, final)
-    warnings.extend(_sign(apksigner, final, project_dir, keystore, keystore_pass, key_alias))
+    sign_warnings, keystore_kind = _sign(
+        apksigner, final, project_dir, keystore, keystore_pass, key_alias
+    )
+    warnings.extend(sign_warnings)
+    if release and keystore_kind == "debug":
+        warnings.append(
+            {
+                "stage": "sign",
+                "message": "--release с отладочным keystore: для публикации укажите --keystore",
+            }
+        )
     stages.append({"stage": "sign", "duration": 0.0, "size": stat_size(final)})
 
     store.save()
@@ -589,6 +614,7 @@ def _sign(apksigner, apk, project_dir, keystore, keystore_pass, key_alias):
     alias = key_alias or "debug"
     password = keystore_pass or "debugpass"
 
+    keystore_kind = "explicit" if os.path.exists(ks) else "debug"
     if not os.path.exists(ks):
         _generate_keystore(ks, alias, password)
         warnings.append(
@@ -615,7 +641,7 @@ def _sign(apksigner, apk, project_dir, keystore, keystore_pass, key_alias):
         "sign",
     )
     _run([apksigner, "verify", apk], "sign")
-    return warnings
+    return warnings, keystore_kind
 
 
 def _generate_keystore(path, alias, password):

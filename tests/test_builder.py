@@ -128,6 +128,21 @@ class CompileCommandTest(unittest.TestCase):
 
         self.assertEqual(cmd[0], "javac")
 
+    def test_java_release_is_passed_to_javac(self):
+        cmd = builder.compile_command(
+            "java", "/sdk/android.jar", "/out", ["/src/A.java"], java_release=11
+        )
+
+        self.assertIn("11", cmd)
+        # javac запрещает -bootclasspath при target >= 9
+        self.assertNotIn("-bootclasspath", cmd)
+        self.assertIn("-classpath", cmd)
+
+    def test_java_default_is_8(self):
+        cmd = builder.compile_command("java", "/sdk/android.jar", "/out", ["/src/A.java"])
+
+        self.assertIn("8", cmd)
+
     def test_kotlin_uses_provided_compiler(self):
         cmd = builder.compile_command(
             "kotlin", "/sdk/android.jar", "/out", ["/src/A.kt"], compiler="/tools/kotlinc"
