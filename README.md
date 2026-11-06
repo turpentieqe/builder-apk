@@ -39,7 +39,7 @@ aapt2 compile → aapt2 link → kotlinc/javac → d8 → zip → zipalign → a
 Нужен только `python3` (>= 3.8) и Android SDK build-tools.
 
 ```bash
-git clone https://github.com/<you>/builder-apk.git
+git clone https://github.com/turpentieqe/builder-apk.git
 ln -s "$PWD/builder-apk/bin/builder-apk" "$PREFIX/bin/builder-apk"   # Termux
 # или: ln -s "$PWD/builder-apk/bin/builder-apk" /usr/local/bin/builder-apk
 ```
