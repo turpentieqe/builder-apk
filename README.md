@@ -6,6 +6,7 @@
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Termux%20%7C%20Linux-lightgrey.svg)](#)
 [![Stars](https://img.shields.io/github/stars/turpentieqe/builder-apk?style=social)](https://github.com/turpentieqe/builder-apk/stargazers)
+[![tests](https://github.com/turpentieqe/builder-apk/actions/workflows/tests.yml/badge.svg)](https://github.com/turpentieqe/builder-apk/actions/workflows/tests.yml)
 
 > Gradle нужен не всегда. Для простого приложения APK собирается руками за семь шагов —
 > `builder-apk` делает это за вас и не даёт цепочке провалиться молча.
