@@ -38,6 +38,7 @@ def cmd_doctor(args):
         android_jar=args.android_jar,
         java_bin=args.java or "java",
         kotlinc=args.kotlinc,
+        discover=not args.no_discover,
     )
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -47,7 +48,7 @@ def cmd_doctor(args):
 
 
 def cmd_inspect(args):
-    data = inspector.inspect(args.apk)
+    data = inspector.inspect(args.apk, aapt=args.aapt)
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
@@ -82,6 +83,7 @@ def cmd_build(args):
         json_output=args.json,
         lang=args.lang,
         compiler=args.compiler,
+        use_cache=not args.no_cache,
     )
 
 
@@ -96,11 +98,17 @@ def build_parser():
     _add_sdk_args(p_doctor)
     p_doctor.add_argument("--java", help="путь к java")
     p_doctor.add_argument("--require", action="append", help="считать инструмент обязательным")
+    p_doctor.add_argument(
+        "--no-discover",
+        action="store_true",
+        help="не искать SDK автоматически (только --build-tools/--sdk/ANDROID_HOME)",
+    )
     p_doctor.add_argument("--json", action="store_true", help="вывод в JSON")
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_inspect = sub.add_parser("inspect", help="показать информацию об APK")
     p_inspect.add_argument("apk", help="путь к APK")
+    p_inspect.add_argument("--aapt", help="путь к aapt2/aapt (по умолчанию — что найдётся)")
     p_inspect.add_argument("--json", action="store_true", help="вывод в JSON")
     p_inspect.set_defaults(func=cmd_inspect)
 
@@ -129,6 +137,11 @@ def build_parser():
         choices=languages.ALL_LANGUAGES,
         default=None,
         help="язык исходников (по умолчанию определяется по src/)",
+    )
+    p_build.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="не использовать кэш сборки (пересобрать всё)",
     )
     p_build.add_argument(
         "--compiler",

@@ -116,7 +116,52 @@ class ChainDetectionTest(TempDirTestCase):
         self.assertTrue(doctor.has_failures(report, extra_required=["d8"]))
 
 
-class ChainSummaryTest(TempDirTestCase):
+class DiscoverDoctorTest(TempDirTestCase):
+    """doctor должен сам находить SDK в типичных местах и объяснять, что ставить."""
+
+    def test_needs_sdk_help_when_android_jar_missing(self):
+        report = {
+            "aapt2": {"status": "ok"},
+            "d8": {"status": "ok"},
+            "android_jar": {"status": "missing"},
+            "apksigner": {"status": "ok"},
+        }
+
+        self.assertTrue(doctor.needs_sdk_help(report))
+
+    def test_no_help_needed_when_everything_ok(self):
+        report = {
+            "aapt2": {"status": "ok"},
+            "d8": {"status": "ok"},
+            "android_jar": {"status": "ok"},
+            "apksigner": {"status": "ok"},
+        }
+
+        self.assertFalse(doctor.needs_sdk_help(report))
+
+    def test_format_report_contains_install_hint_for_missing_sdk(self):
+        report = doctor.check_chain(
+            build_tools=None, android_jar=None, java_bin="java", use_path=False, discover=False
+        )
+
+        text = doctor.format_report(report)
+
+        self.assertIn("pkg install openjdk-21 android-sdk", text)
+        self.assertIn("ANDROID_HOME", text)
+
+    def test_discover_finds_build_tools_from_home(self):
+        """Кладём фейковый SDK в типичное место и проверяем, что discover его нашёл."""
+        import env
+
+        sdk = os.path.join(self.tmpdir, "android-sdk")
+        bt = os.path.join(sdk, "build-tools", "34.0.0")
+        os.makedirs(os.path.join(bt, "lib"))
+        with open(os.path.join(bt, "lib", "d8.jar"), "wb") as handle:
+            handle.write(b"PK")
+
+        found = env.discover_build_tools(extra_roots=[sdk])
+
+        self.assertIn(bt, found)
     def test_has_failures_ignores_warnings(self):
         report = {
             "aapt2": {"status": "ok"},

@@ -1,5 +1,6 @@
 """Тесты инспектора APK (парсинг вывода, без SDK)."""
 
+import os
 import unittest
 
 from helpers import TempDirTestCase
@@ -56,6 +57,26 @@ class ParseBadgingTest(unittest.TestCase):
 
         self.assertIsNone(data["package"])
         self.assertEqual(data["permissions"], [])
+
+    def test_aapt2_uses_min_sdk_version_key(self):
+        """aapt2 печатает minSdkVersion, aapt — sdkVersion. Оба должны пониматься."""
+        aapt2_sample = (
+            "package: name='com.x' versionCode='1' versionName='1.0'\n"
+            "minSdkVersion:'21'\n"
+            "targetSdkVersion:'34'\n"
+        )
+        data = inspector.parse_badging(aapt2_sample)
+
+        self.assertEqual(data["sdk_version"], "21")
+        self.assertEqual(data["target_sdk"], "34")
+
+    def test_detect_badging_tool_prefers_aapt2(self):
+        tool = inspector.detect_badging_tool()
+
+        self.assertIn(os.path.basename(tool), ("aapt2", "aapt"))
+
+    def test_explicit_tool_wins(self):
+        self.assertEqual(inspector.detect_badging_tool("/custom/aapt"), "/custom/aapt")
 
 
 class ParseCertsTest(unittest.TestCase):

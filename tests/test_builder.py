@@ -234,9 +234,22 @@ class StatSizeTest(TempDirTestCase):
 
 class BuildErrorTest(TempDirTestCase):
     def test_missing_manifest_fails_fast(self):
-        code = builder.build(project_dir=self.tmpdir, build_tools=self.tmpdir)
+        code = builder.build(
+            project_dir=self.tmpdir, build_tools=self.tmpdir, use_cache=False
+        )
 
         self.assertEqual(code, 1)
+
+    def test_cache_paths_are_under_build_dir(self):
+        """Кэш обязан лежать в build/.cache — иначе засорим проект."""
+        import cache
+
+        store = cache.BuildCache(os.path.join(self.tmpdir, "build", ".cache", "stages.json"))
+        store.remember("compile", "stamp")
+        store.save()
+
+        self.assertTrue(os.path.exists(store.path))
+        self.assertIn(os.path.join("build", ".cache"), store.path)
 
     def test_run_reports_missing_command(self):
         with self.assertRaises(builder.BuildError) as ctx:

@@ -127,13 +127,42 @@ def _find_binary(name, build_tools, extra_dirs=(), use_path=True):
     return shutil.which(name) if use_path else None
 
 
-def check_chain(build_tools=None, android_jar=None, java_bin="java", kotlinc=None, use_path=True):
+def auto_discover(log=None):
+    """Ищет build-tools и kotlinc в типичных местах (Termux и не только).
+
+    Возвращает (build_tools, kotlinc) — что нашлось, то и вернём.
+    """
+    build_tools = None
+    found = env.discover_build_tools()
+    if found:
+        # Предпочитаем каталог с подходящей архитектурой — иначе смысла нет.
+        runnable = [path for path in found if os.path.exists(os.path.join(path, "lib", "d8.jar"))]
+        build_tools = (runnable or found)[-1]
+    kotlinc = env.discover_kotlinc()
+    return build_tools, kotlinc
+
+
+def check_chain(
+    build_tools=None,
+    android_jar=None,
+    java_bin="java",
+    kotlinc=None,
+    use_path=True,
+    discover=False,
+):
     """Проверяет всю цепочку и возвращает словарь {tool: status-dict}.
 
     use_path=False — не смотреть в PATH (нужно тестам и режиму строгой проверки SDK).
+    discover=True — если каталоги не заданы, попробовать найти их автоматически.
     """
+    if discover and not build_tools:
+        build_tools, found_kotlinc = auto_discover()
+        kotlinc = kotlinc or found_kotlinc
+
     build_tools = build_tools or ""
     extra_dirs = (build_tools,)
+    # Если build-tools нашлись сами, android.jar стоит искать рядом с ними.
+
 
     report = {
         "java": _probe_binary(
@@ -226,6 +255,24 @@ def has_failures(report, extra_required=()):
     return False
 
 
+INSTALL_HINTS = (
+    "Android SDK не найден. В Termux:",
+    "  pkg install openjdk-21 android-sdk",
+    '  export ANDROID_HOME="$PREFIX/opt/android-sdk"',
+    "",
+    "Или укажите путь явно: builder-apk doctor --build-tools /path/to/build-tools/34.0.0",
+)
+
+
+def needs_sdk_help(report):
+    """Нужно ли показать инструкцию по установке SDK."""
+    for tool in ("aapt2", "d8", "android_jar", "apksigner"):
+        info = report.get(tool) or {}
+        if info.get("status") in _FAILING_STATUSES:
+            return True
+    return False
+
+
 def format_report(report):
     """Табличка для терминала."""
     order = ["java", "aapt2", "d8", "kotlinc", "zipalign", "apksigner", "android_jar"]
@@ -259,4 +306,7 @@ def format_report(report):
         lines.append("")
         lines.append("Подсказки:")
         lines.extend(hints)
+    if needs_sdk_help(report):
+        lines.append("")
+        lines.extend(INSTALL_HINTS)
     return "\n".join(lines)

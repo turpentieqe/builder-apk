@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 
+import cache
 import env
 import languages
 
@@ -301,6 +302,7 @@ def build(
     key_alias=None,
     lang=None,
     compiler=None,
+    use_cache=True,
 ):
     """Собирает APK. Возвращает код выхода (0 — успех)."""
     import json as _json
@@ -322,6 +324,7 @@ def build(
             key_alias=key_alias,
             lang=lang,
             compiler=compiler,
+            use_cache=use_cache,
         )
         report["stages"] = stages
         report["warnings"] = warnings
@@ -356,6 +359,7 @@ def _build_inner(
     key_alias,
     lang=None,
     compiler=None,
+    use_cache=True,
 ):
     stages = []
     warnings = []
@@ -390,12 +394,14 @@ def _build_inner(
 
     work = os.path.join(project_dir, "build")
     tmp = os.path.join(work, ".tmp")
-    if os.path.isdir(tmp):
+    # При включённом кэше промежуточные результаты надо сохранять между сборками,
+    # иначе пропущенная стадия оставит нас без своих выходов.
+    if os.path.isdir(tmp) and not use_cache:
         shutil.rmtree(tmp)
     classes_dir = os.path.join(tmp, "classes")
     dex_dir = os.path.join(tmp, "dex")
-    os.makedirs(classes_dir)
-    os.makedirs(dex_dir)
+    os.makedirs(classes_dir, exist_ok=True)
+    os.makedirs(dex_dir, exist_ok=True)
 
     aapt2 = _find_tool(bt, "aapt2")
     zipalign = _find_tool(bt, "zipalign")
@@ -456,6 +462,9 @@ def _build_inner(
         keystore_pass=keystore_pass,
         key_alias=key_alias,
         compiler=compiler,
+        use_cache=use_cache,
+        res_dir=res_dir,
+        manifest=manifest,
     )
 
 
@@ -481,13 +490,23 @@ def _compile_and_pack(
     keystore_pass,
     key_alias,
     compiler=None,
+    use_cache=True,
+    res_dir=None,
+    manifest=None,
 ):
     """Стадии 3-7: компиляция, dex, упаковка, выравнивание, подпись."""
+    store = cache.BuildCache(os.path.join(project_dir, "build", ".cache", "stages.json"))
+
     # 3. Компиляция — единая точка входа для всех языков
     cmd = compile_command(lang, jar, classes_dir, sources, compiler=compiler or kotlinc)
-    result = _run(cmd, "compile")
-    stages.append(_stage_entry(result, None))
-    warnings.extend(scan_stderr("compile", result["stderr"]))
+    compile_stamp = cache.fingerprint(sources, extra=cmd)
+    if use_cache and store.is_fresh("compile", compile_stamp):
+        stages.append(_skipped("compile"))
+    else:
+        result = _run(cmd, "compile")
+        stages.append(_stage_entry(result, None))
+        warnings.extend(scan_stderr("compile", result["stderr"]))
+        store.remember("compile", compile_stamp, outputs=[classes_dir])
 
     # 4. d8
     class_files = sorted(glob.glob(os.path.join(classes_dir, "**", "*.class"), recursive=True))
@@ -503,9 +522,16 @@ def _compile_and_pack(
             warnings.append(
                 {"stage": "d8", "message": "kotlin-stdlib.jar не найден — APK упадёт на старте"}
             )
-    result = _run(_d8_cmd(java_bin, d8_jar, jar, min_sdk, dex_dir, class_files, extra_jars), "d8")
-    stages.append(_stage_entry(result, stat_size(os.path.join(dex_dir, "classes.dex"))))
-    warnings.extend(scan_stderr("d8", result["stderr"]))
+    dex_file = os.path.join(dex_dir, "classes.dex")
+    d8_cmd = _d8_cmd(java_bin, d8_jar, jar, min_sdk, dex_dir, class_files, extra_jars)
+    d8_stamp = cache.fingerprint(class_files, extra=d8_cmd)
+    if use_cache and store.is_fresh("d8", d8_stamp):
+        stages.append(_skipped("d8"))
+    else:
+        result = _run(d8_cmd, "d8")
+        stages.append(_stage_entry(result, stat_size(dex_file)))
+        warnings.extend(scan_stderr("d8", result["stderr"]))
+        store.remember("d8", d8_stamp, outputs=[dex_file])
 
     # 5. Упаковка
     dex_file = os.path.join(dex_dir, "classes.dex")
@@ -537,6 +563,7 @@ def _compile_and_pack(
     warnings.extend(_sign(apksigner, final, project_dir, keystore, keystore_pass, key_alias))
     stages.append({"stage": "sign", "duration": 0.0, "size": stat_size(final)})
 
+    store.save()
     return stages, warnings, final
 
 
@@ -622,6 +649,11 @@ def _generate_keystore(path, alias, password):
     )
 
 
+def _skipped(stage):
+    """Запись о стадии, пропущенной из-за кэша."""
+    return {"stage": stage, "duration": 0.0, "size": None, "skipped": True, "cached": True}
+
+
 def _stage_entry(result, size):
     return {"stage": result["stage"], "duration": round(result["duration"], 3), "size": size}
 
@@ -642,6 +674,8 @@ def _print_success(report):
         size = stage.get("size")
         if size:
             size_text = _human(size)
+        elif stage.get("cached"):
+            size_text = "из кэша"
         elif stage.get("skipped"):
             size_text = "пропущено"
         else:

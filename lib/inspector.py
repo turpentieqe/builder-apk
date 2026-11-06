@@ -7,6 +7,7 @@
 
 import os
 import re
+import shutil
 import subprocess
 
 
@@ -49,7 +50,7 @@ def parse_badging(text):
         r"package: name='([^']*)' versionCode='([^']*)' versionName='([^']*)'"
     )
     label_re = re.compile(r"application-label(?:-[a-z]{2})?:'([^']*)'")
-    sdk_re = re.compile(r"sdkVersion:'([^']*)'")
+    sdk_re = re.compile(r"(?:min)?sdkVersion:'([^']*)'", re.IGNORECASE)
     target_re = re.compile(r"targetSdkVersion:'([^']*)'")
     perm_re = re.compile(r"uses-permission: name='([^']*)'")
     launch_re = re.compile(r"launchable-activity: name='([^']*)'")
@@ -140,14 +141,29 @@ def human_size(num_bytes):
     return "%.1f GiB" % value
 
 
-def inspect(apk_path, aapt="aapt", apksigner="apksigner"):
-    """Читает APK через aapt/apksigner и возвращает словарь."""
+def detect_badging_tool(explicit=None):
+    """Выбирает aapt2, если он есть: он стабильнее и есть во всех новых SDK.
+
+    Порядок: явно заданный → aapt2 → aapt.
+    """
+    if explicit:
+        return explicit
+    for candidate in ("aapt2", "aapt"):
+        path = shutil.which(candidate)
+        if path:
+            return path
+    return "aapt"
+
+
+def inspect(apk_path, aapt=None, apksigner="apksigner"):
+    """Читает APK через aapt2/aapt и apksigner, возвращает словарь."""
     result = {
         "path": os.path.abspath(apk_path),
         "exists": os.path.exists(apk_path),
         "size_bytes": None,
         "badging": {},
         "certs": {},
+        "tool": None,
         "errors": [],
     }
     if not result["exists"]:
@@ -156,10 +172,24 @@ def inspect(apk_path, aapt="aapt", apksigner="apksigner"):
 
     result["size_bytes"] = os.path.getsize(apk_path)
 
-    code, stdout, stderr = _run([aapt, "dump", "badging", apk_path])
+    tool = detect_badging_tool(aapt)
+    result["tool"] = os.path.basename(tool)
+    code, stdout, stderr = _run([tool, "dump", "badging", apk_path], timeout=120)
     if code != 0:
-        result["errors"].append("aapt dump badging: %s" % (stderr.strip() or "код %d" % code))
-    result["badging"] = parse_badging(stdout)
+        result["errors"].append(
+            "%s dump badging: %s" % (result["tool"], stderr.strip() or "код %d" % code)
+        )
+    badging = parse_badging(stdout)
+
+    # aapt (v1) не умеет часть полей — добираем aapt2, если он доступен.
+    if not badging.get("package") and result["tool"] != "aapt2":
+        aapt2 = shutil.which("aapt2")
+        if aapt2:
+            code2, stdout2, _stderr2 = _run([aapt2, "dump", "badging", apk_path], timeout=120)
+            if code2 == 0 and parse_badging(stdout2).get("package"):
+                badging = parse_badging(stdout2)
+                result["tool"] = "aapt2"
+    result["badging"] = badging
 
     code, stdout, stderr = _run([apksigner, "verify", "--print-certs", apk_path])
     # apksigner возвращает 0 для валидной подписи, 1 — для неподписанного/битого.
@@ -174,6 +204,8 @@ def inspect(apk_path, aapt="aapt", apksigner="apksigner"):
 def format_report(data):
     """Текстовый отчёт для терминала."""
     lines = ["APK: %s" % data["path"]]
+    if data.get("tool"):
+        lines.append("Разбор: %s" % data["tool"])
     if data.get("size_bytes") is not None:
         lines.append("Размер: %s" % human_size(data["size_bytes"]))
 
