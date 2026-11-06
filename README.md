@@ -114,7 +114,11 @@ export ANDROID_HOME=$HOME/android-sdk
 builder-apk build                 # debug
 builder-apk build --release --keystore ~/keys/release.keystore
 builder-apk build --json          # машинный вывод для CI
+builder-apk build --no-cache      # пересобрать всё (кэш игнорируется)
 ```
+
+Сборка кэшируется: `compile` и `d8` пропускаются, если входы не менялись.
+На повторной сборке Java-проекта это ~1.7 s вместо ~5.2 s.
 
 Отчёт по стадиям:
 
