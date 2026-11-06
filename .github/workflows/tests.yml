@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -36,8 +36,10 @@ jobs:
 
       - name: Install Android build-tools
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "build-tools;34.0.0" "platforms;android-34" > /dev/null
+          sdkmanager --install "build-tools;34.0.0" "platforms;android-34"
+        env:
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
 
       - name: doctor
         run: ./bin/builder-apk doctor --json
