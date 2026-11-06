@@ -91,6 +91,17 @@ android_jar      OK      -              .../platforms/android-34/android.jar
 ```bash
 builder-apk init myapp --name "Моё приложение" --package com.me.myapp --lang java
 builder-apk init myapp --lang kotlin --min-sdk 24 --target-sdk 34
+builder-apk init myapp --lang groovy
+builder-apk init myapp --lang scala
+```
+
+Языки: **kotlin**, **java**, **groovy**, **scala**. Все компилируются в JVM-байткод,
+поэтому дальше цепочка одна и та же (d8 → zip → sign).
+
+Компилятор ищется в `$PATH`; если его нет — укажите явно:
+
+```bash
+builder-apk build --compiler /path/to/groovyc
 ```
 
 Создаёт: `AndroidManifest.xml`, `res/values/strings.xml`, PNG-иконки в
@@ -143,7 +154,7 @@ python3 tests/run.py
 
 ## Ограничения
 
-- Только Kotlin и Java. C/C++ (NDK), Compose, мульти-модульные проекты — нет.
+- Только JVM-языки: Kotlin, Java, Groovy, Scala. C/C++ (NDK), Compose, мульти-модульные проекты — нет.
 - Нет инкрементальной сборки: каждый запуск собирает всё заново.
 - Нет работы с AAB, не поддерживаются build variants и flavors.
 - Тестировалось на Termux (aarch64) и Linux x86-64.

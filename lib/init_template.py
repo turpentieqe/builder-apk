@@ -4,6 +4,7 @@ import os
 import shutil
 
 import icon
+import languages
 
 MANIFEST_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -67,6 +68,41 @@ STRINGS_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">{name}</string>
 </resources>
+"""
+
+GROOVY_TEMPLATE = """package {package}
+
+import android.app.Activity
+import android.os.Bundle
+import android.widget.TextView
+
+class MainActivity extends Activity {{
+    @Override
+    void onCreate(Bundle savedInstanceState) {{
+        super.onCreate(savedInstanceState)
+        def label = new TextView(this)
+        label.text = "{name}"
+        label.textSize = 24f
+        setContentView(label)
+    }}
+}}
+"""
+
+SCALA_TEMPLATE = """package {package}
+
+import android.app.Activity
+import android.os.Bundle
+import android.widget.TextView
+
+class MainActivity extends Activity {{
+  override def onCreate(savedInstanceState: Bundle): Unit = {{
+    super.onCreate(savedInstanceState)
+    val label = new TextView(this)
+    label.setText("{name}")
+    label.setTextSize(24f)
+    setContentView(label)
+  }}
+}}
 """
 
 BUILD_SH_TEMPLATE = """#!/usr/bin/env bash
@@ -152,6 +188,22 @@ def _package_path(package):
     return package.replace(".", "/")
 
 
+def _activity_source(lang, base):
+    """Возвращает (имя файла, содержимое) для MainActivity нужного языка."""
+    templates = {
+        "kotlin": ("MainActivity.kt", KOTLIN_TEMPLATE),
+        "java": ("MainActivity.java", JAVA_TEMPLATE),
+        "groovy": ("MainActivity.groovy", GROOVY_TEMPLATE),
+        "scala": ("MainActivity.scala", SCALA_TEMPLATE),
+    }
+    if lang not in templates:
+        raise SystemExit(
+            "--lang должен быть один из: %s (получено: %s)" % (languages.supported_list(), lang)
+        )
+    filename, template = templates[lang]
+    return filename, template.format(**base)
+
+
 def scaffold(directory, name, package, lang="kotlin", min_sdk=21, target_sdk=34, force=False):
     """Создаёт скелет проекта. Возвращает список созданных путей."""
     if os.path.exists(directory) and not force and os.listdir(directory):
@@ -161,8 +213,11 @@ def scaffold(directory, name, package, lang="kotlin", min_sdk=21, target_sdk=34,
 
     package_path = _package_path(package)
     lang = (lang or "kotlin").lower()
-    if lang not in ("kotlin", "java"):
-        raise SystemExit("--lang должен быть kotlin или java, получено: %s" % lang)
+    if lang not in languages.ALL_LANGUAGES:
+        raise SystemExit(
+            "--lang должен быть один из: %s (получено: %s)"
+            % (languages.supported_list(), lang)
+        )
 
     apk_name = (name or "app").lower().replace(" ", "-")
     base = {
@@ -186,10 +241,8 @@ def scaffold(directory, name, package, lang="kotlin", min_sdk=21, target_sdk=34,
         os.path.join(directory, ".gitignore"): GITIGNORE_TEMPLATE,
         os.path.join(directory, "README.md"): README_TEMPLATE.format(**base),
     }
-    if lang == "kotlin":
-        files[os.path.join(src_dir, "MainActivity.kt")] = KOTLIN_TEMPLATE.format(**base)
-    else:
-        files[os.path.join(src_dir, "MainActivity.java")] = JAVA_TEMPLATE.format(**base)
+    activity_file, activity_source = _activity_source(lang, base)
+    files[os.path.join(src_dir, activity_file)] = activity_source
 
     created = []
     for path, content in files.items():

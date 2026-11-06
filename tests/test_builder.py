@@ -78,6 +78,94 @@ class DetectLangTest(TempDirTestCase):
         self.assertEqual(sources, [])
 
 
+class DetectLangPreferTest(TempDirTestCase):
+    """--lang должен побеждать автоопределение и падать понятно, если файлов нет."""
+
+    def _write(self, name):
+        src = os.path.join(self.tmpdir, "src", "com", "x")
+        os.makedirs(src, exist_ok=True)
+        path = os.path.join(src, name)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("// x")
+        return path
+
+    def test_prefer_groovy_finds_groovy(self):
+        path = self._write("Main.groovy")
+
+        lang, sources = builder.detect_lang(self.tmpdir, prefer="groovy")
+
+        self.assertEqual(lang, "groovy")
+        self.assertEqual(sources, [path])
+
+    def test_prefer_scala_finds_scala(self):
+        self._write("Main.scala")
+
+        lang, _sources = builder.detect_lang(self.tmpdir, prefer="scala")
+
+        self.assertEqual(lang, "scala")
+
+    def test_prefer_overrides_autodetection(self):
+        """Если в src/ лежит Kotlin, а просят java — берём java (и падаем, если нет)."""
+        self._write("Main.kt")
+
+        with self.assertRaises(builder.BuildError):
+            builder.detect_lang(self.tmpdir, prefer="java")
+
+    def test_unknown_language_gives_helpful_error(self):
+        self._write("Main.kt")
+
+        with self.assertRaises(builder.BuildError) as ctx:
+            builder.detect_lang(self.tmpdir, prefer="rust")
+
+        self.assertIn("kotlin", str(ctx.exception))
+
+
+class CompileCommandTest(unittest.TestCase):
+    """Единая точка входа compile_command для всех языков."""
+
+    def test_java_uses_javac(self):
+        cmd = builder.compile_command("java", "/sdk/android.jar", "/out", ["/src/A.java"])
+
+        self.assertEqual(cmd[0], "javac")
+
+    def test_kotlin_uses_provided_compiler(self):
+        cmd = builder.compile_command(
+            "kotlin", "/sdk/android.jar", "/out", ["/src/A.kt"], compiler="/tools/kotlinc"
+        )
+
+        self.assertEqual(cmd[0], "/tools/kotlinc")
+
+    def test_groovy_uses_groovyc(self):
+        cmd = builder.compile_command(
+            "groovy", "/sdk/android.jar", "/out", ["/src/A.groovy"], compiler="/tools/groovyc"
+        )
+
+        self.assertEqual(cmd[0], "/tools/groovyc")
+        self.assertIn("--classpath", cmd)
+
+    def test_scala_uses_scalac(self):
+        cmd = builder.compile_command(
+            "scala", "/sdk/android.jar", "/out", ["/src/A.scala"], compiler="/tools/scalac"
+        )
+
+        self.assertEqual(cmd[0], "/tools/scalac")
+        self.assertIn("-classpath", cmd)
+
+    def test_missing_compiler_explains_what_to_do(self):
+        with self.assertRaises(builder.BuildError) as ctx:
+            builder.compile_command(
+                "groovy", "/sdk/android.jar", "/out", ["/src/A.groovy"], compiler=None
+            )
+
+        message = str(ctx.exception)
+        self.assertIn("groovyc", message)
+        self.assertIn("--lang java", message)
+
+    def test_unknown_language_rejected(self):
+        with self.assertRaises(builder.BuildError):
+            builder.compile_command("rust", "/sdk/android.jar", "/out", [])
+
+
 class CommandBuildersTest(unittest.TestCase):
     def test_kotlin_command_includes_classpath_and_sources(self):
         cmd = builder._compile_kotlin("kotlinc", "/sdk/android.jar", "/out", ["/src/A.kt"])

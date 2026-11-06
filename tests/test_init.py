@@ -87,6 +87,36 @@ class ScaffoldTest(TempDirTestCase):
         with self.assertRaises(SystemExit):
             self._scaffold(lang="rust")
 
+    def test_groovy_project_creates_groovy_file(self):
+        created = self._scaffold(lang="groovy")
+        names = {os.path.basename(path) for path in created}
+
+        self.assertIn("MainActivity.groovy", names)
+        self.assertNotIn("MainActivity.kt", names)
+
+    def test_scala_project_creates_scala_file(self):
+        created = self._scaffold(lang="scala")
+        names = {os.path.basename(path) for path in created}
+
+        self.assertIn("MainActivity.scala", names)
+
+    def test_groovy_template_has_no_kotlin_syntax(self):
+        created = self._scaffold(lang="groovy")
+        source = [p for p in created if p.endswith("MainActivity.groovy")][0]
+        with open(source, encoding="utf-8") as handle:
+            content = handle.read()
+
+        self.assertIn("extends Activity", content)
+        self.assertNotIn("override fun", content)
+
+    def test_scala_template_uses_override_def(self):
+        created = self._scaffold(lang="scala")
+        source = [p for p in created if p.endswith("MainActivity.scala")][0]
+        with open(source, encoding="utf-8") as handle:
+            content = handle.read()
+
+        self.assertIn("override def onCreate", content)
+
     def test_gitignore_excludes_build_and_keystore(self):
         created = self._scaffold()
         path = [p for p in created if p.endswith(".gitignore")][0]

@@ -19,6 +19,7 @@ if LIB_DIR not in sys.path:
     sys.path.insert(0, LIB_DIR)
 
 import doctor  # noqa: E402
+import languages  # noqa: E402
 import inspector  # noqa: E402
 import init_template  # noqa: E402
 import builder  # noqa: E402
@@ -79,6 +80,8 @@ def cmd_build(args):
         release=args.release,
         output=args.output,
         json_output=args.json,
+        lang=args.lang,
+        compiler=args.compiler,
     )
 
 
@@ -105,7 +108,12 @@ def build_parser():
     p_init.add_argument("directory", help="каталог проекта")
     p_init.add_argument("--name", default="MyApp", help="название приложения")
     p_init.add_argument("--package", default="com.example.myapp", help="applicationId")
-    p_init.add_argument("--lang", choices=("kotlin", "java"), default="kotlin")
+    p_init.add_argument(
+        "--lang",
+        choices=languages.ALL_LANGUAGES,
+        default="kotlin",
+        help="язык исходников (по умолчанию: kotlin)",
+    )
     p_init.add_argument("--min-sdk", default=21, type=int)
     p_init.add_argument("--target-sdk", default=34, type=int)
     p_init.set_defaults(func=cmd_init)
@@ -116,6 +124,16 @@ def build_parser():
     p_build.add_argument("--release", action="store_true", help="release-сборка (с подписью)")
     p_build.add_argument("--output", help="путь к выходному APK")
     p_build.add_argument("--json", action="store_true", help="вывод в JSON")
+    p_build.add_argument(
+        "--lang",
+        choices=languages.ALL_LANGUAGES,
+        default=None,
+        help="язык исходников (по умолчанию определяется по src/)",
+    )
+    p_build.add_argument(
+        "--compiler",
+        help="явный путь к компилятору (kotlinc/groovyc/scalac); для java не нужен",
+    )
     p_build.set_defaults(func=cmd_build)
 
     return parser

@@ -12,6 +12,7 @@ import subprocess
 import time
 
 import env
+import languages
 
 STAGES = ("aapt2-compile", "aapt2-link", "compile", "d8", "package", "zipalign", "sign")
 
@@ -82,18 +83,39 @@ def scan_stderr(stage, stderr_text):
 
 def find_sources(src_dir, lang):
     """Возвращает список файлов исходников нужного языка."""
-    pattern = "*.kt" if lang == "kotlin" else "*.java"
+    pattern = "*" + languages.extension_for(lang)
     return sorted(glob.glob(os.path.join(src_dir, "**", pattern), recursive=True))
 
 
-def detect_lang(project_dir):
-    """Определяет язык по содержимому src/."""
-    sources = find_sources(os.path.join(project_dir, "src"), "kotlin")
-    if sources:
-        return "kotlin", sources
-    sources = find_sources(os.path.join(project_dir, "src"), "java")
-    if sources:
-        return "java", sources
+def detect_lang(project_dir, prefer=None):
+    """Определяет язык по содержимому src/.
+
+    prefer — явно указанный пользователем язык (--lang): побеждает автоопределение.
+    Порядок автоопределения задан в languages.LANGUAGES.
+    """
+    src_root = os.path.join(project_dir, "src")
+
+    if prefer:
+        prefer = prefer.lower()
+        if prefer not in languages.ALL_LANGUAGES:
+            raise BuildError(
+                "resolve",
+                "неизвестный язык %r, поддерживаются: %s"
+                % (prefer, languages.supported_list()),
+            )
+        sources = find_sources(src_root, prefer)
+        if not sources:
+            raise BuildError(
+                "resolve",
+                "не найдено исходников *%s в %s (--lang %s)"
+                % (languages.extension_for(prefer), src_root, prefer),
+            )
+        return prefer, sources
+
+    for lang in languages.ALL_LANGUAGES:
+        sources = find_sources(src_root, lang)
+        if sources:
+            return lang, sources
     return None, []
 
 
@@ -166,6 +188,58 @@ def resolve_android_jar(android_jar=None, build_tools=None, target_sdk=34):
     )
 
 
+def _compile_groovy(groovyc, android_jar, classes_dir, sources):
+    """groovyc: компиляция Groovy (JVM-байткод, d8 дальше тот же)."""
+    return [
+        groovyc,
+        "--classpath",
+        android_jar,
+        "-d",
+        classes_dir,
+    ] + sources
+
+
+def _compile_scala(scalac, android_jar, classes_dir, sources):
+    """scalac: компиляция Scala."""
+    return [
+        scalac,
+        "-classpath",
+        android_jar,
+        "-d",
+        classes_dir,
+    ] + sources
+
+
+def compile_command(lang, android_jar, classes_dir, sources, compiler=None):
+    """Собирает команду компиляции для любого поддерживаемого языка.
+
+    Единая точка входа: раньше ветвление было зашито в двух местах, теперь
+    добавление языка не требует трогать остальную сборку.
+    """
+    if lang not in languages.ALL_LANGUAGES:
+        raise BuildError(
+            "compile", "неизвестный язык %r (поддерживаются: %s)" % (lang, languages.supported_list())
+        )
+
+    if lang == "java":
+        return _compile_java(android_jar, classes_dir, sources)
+
+    info = languages.LANGUAGES[lang]
+    binary = compiler or shutil.which(info["compiler"])
+    if not binary:
+        raise BuildError(
+            "compile",
+            "%s не найден — укажите явный путь или используйте --lang java "
+            "(например: --compiler /path/to/%s)" % (info["compiler"], info["compiler"]),
+        )
+
+    if lang == "kotlin":
+        return _compile_kotlin(binary, android_jar, classes_dir, sources)
+    if lang == "groovy":
+        return _compile_groovy(binary, android_jar, classes_dir, sources)
+    return _compile_scala(binary, android_jar, classes_dir, sources)
+
+
 def _compile_kotlin(kotlinc, android_jar, classes_dir, sources):
     """kotlinc: компиляция Kotlin в JVM-классы."""
     return [
@@ -225,6 +299,8 @@ def build(
     keystore=None,
     keystore_pass=None,
     key_alias=None,
+    lang=None,
+    compiler=None,
 ):
     """Собирает APK. Возвращает код выхода (0 — успех)."""
     import json as _json
@@ -244,6 +320,8 @@ def build(
             keystore=keystore,
             keystore_pass=keystore_pass,
             key_alias=key_alias,
+            lang=lang,
+            compiler=compiler,
         )
         report["stages"] = stages
         report["warnings"] = warnings
@@ -276,6 +354,8 @@ def _build_inner(
     keystore,
     keystore_pass,
     key_alias,
+    lang=None,
+    compiler=None,
 ):
     stages = []
     warnings = []
@@ -293,11 +373,14 @@ def _build_inner(
     if not os.path.exists(manifest):
         raise BuildError("resolve", "AndroidManifest.xml не найден в %s" % project_dir)
 
-    lang, sources = detect_lang(project_dir)
+    lang, sources = detect_lang(project_dir, prefer=lang)
     if not lang:
-        lang, sources = detect_lang(os.path.join(project_dir, "app"))
+        lang, sources = detect_lang(os.path.join(project_dir, "app"), prefer=lang)
     if not lang:
-        raise BuildError("resolve", "не найдено исходников (*.kt или *.java) в src/")
+        raise BuildError(
+            "resolve",
+            "не найдено исходников (%s) в src/" % languages.supported_list(),
+        )
 
     bt = resolve_sdk(sdk=sdk, build_tools=build_tools)
     jar = resolve_android_jar(android_jar=android_jar, build_tools=bt, target_sdk=target_sdk)
@@ -372,6 +455,7 @@ def _build_inner(
         keystore=keystore,
         keystore_pass=keystore_pass,
         key_alias=key_alias,
+        compiler=compiler,
     )
 
 
@@ -396,19 +480,11 @@ def _compile_and_pack(
     keystore,
     keystore_pass,
     key_alias,
+    compiler=None,
 ):
     """Стадии 3-7: компиляция, dex, упаковка, выравнивание, подпись."""
-    # 3. Компиляция
-    if lang == "kotlin":
-        kotlinc_bin = kotlinc or shutil.which("kotlinc")
-        if not kotlinc_bin:
-            raise BuildError(
-                "compile", "kotlinc не найден — укажите --kotlinc или используйте Java"
-            )
-        cmd = _compile_kotlin(kotlinc_bin, jar, classes_dir, sources)
-    else:
-        kotlinc_bin = None
-        cmd = _compile_java(jar, classes_dir, sources)
+    # 3. Компиляция — единая точка входа для всех языков
+    cmd = compile_command(lang, jar, classes_dir, sources, compiler=compiler or kotlinc)
     result = _run(cmd, "compile")
     stages.append(_stage_entry(result, None))
     warnings.extend(scan_stderr("compile", result["stderr"]))
@@ -419,8 +495,8 @@ def _compile_and_pack(
         raise BuildError("d8", "после компиляции нет ни одного .class")
     java_bin = shutil.which("java") or "java"
     extra_jars = []
-    if lang == "kotlin":
-        stdlib = _find_kotlin_stdlib(kotlinc_bin) if kotlinc_bin else None
+    if lang in ("kotlin",):
+        stdlib = _find_kotlin_stdlib(compiler or kotlinc or shutil.which("kotlinc"))
         if stdlib:
             extra_jars.append(stdlib)
         else:
